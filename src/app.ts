@@ -45,6 +45,14 @@ app.use(express.json());
 app.use(cookieParser());
 app.use("/api", apiLimiter);
 
+// ヘルスチェック ＆ ブラウザのfavicon自動リクエスト対策
+app.get("/", (_req: Request, res: Response) => {
+  return res.status(200).json({ status: "ok", service: "secure-backoffice-api" });
+});
+app.get("/favicon.ico", (_req: Request, res: Response) => {
+  return res.status(204).end();
+});
+
 // 監査ログをメイン処理をブロックせずに非同期記録するヘルパー
 const logAuditAsync = (params: Parameters<typeof recordAuditLog>[0]) => {
   void recordAuditLog(params).catch((err) => {
@@ -305,6 +313,11 @@ app.delete(
     }
   }
 );
+
+// 未定義ルート向けのJSON 404ハンドラー（Express既定HTML/CSPを回避）
+app.use((_req: Request, res: Response) => {
+  return res.status(404).json({ error: "エンドポイントが見つかりません" });
+});
 
 // 統一エラーハンドラー
 app.use(errorHandler);
