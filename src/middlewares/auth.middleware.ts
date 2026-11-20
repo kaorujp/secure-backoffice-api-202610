@@ -24,7 +24,9 @@ export const authenticateJWT = (req: Request, res: Response, next: NextFunction)
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as AuthUserPayload;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string, {
+      algorithms: ["HS256"],
+    }) as AuthUserPayload;
     req.user = decoded;
     next();
   } catch (err) {

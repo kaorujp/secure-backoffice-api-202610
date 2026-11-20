@@ -8,6 +8,6 @@ export const errorHandler = (err: Error, req: Request, res: Response, next: Next
 
   // クライアント側には内部情報を漏洩させず固定メッセージのみを返却
   res.status(500).json({
-    error: "サーバー内部で予期せぬエラーが発生しました。管理者にお問い合わせください。",
+    error: "予期せぬエラーが発生しました。管理者にお問い合わせください。",
   });
 };

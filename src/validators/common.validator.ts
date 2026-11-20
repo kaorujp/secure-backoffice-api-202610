@@ -4,16 +4,20 @@ import { z, ZodTypeAny } from "zod";
 
 // ログイン入力スキーマ
 export const loginSchema = z.object({
-  email: z.string().trim().email("有効なメールアドレスを入力してください"),
-  password: z.string().min(8, "パスワードは8文字以上必須です"),
+  email: z.string().trim().email("有効なメールアドレスを入力してください").max(255),
+  password: z.string().min(8, "パスワードは8文字以上必須です").max(128),
 });
 
-// 顧客登録スキーマ（サニタイズを兼ねたtrimと形式制限）
+// 顧客登録スキーマ（サニタイズを兼ねたtrimと形式・文字数上限）
 export const customerCreateSchema = z.object({
   name: z.string().trim().min(1, "氏名は必須です").max(255),
-  email: z.string().trim().email("無効なメール形式です"),
-  phone: z.string().trim().regex(/^[0-9-]+$/, "電話番号の形式が正しくありません"),
-  address: z.string().trim().optional(),
+  email: z.string().trim().email("無効なメール形式です").max(255),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^[0-9-]+$/, "電話番号の形式が正しくありません")
+    .max(50, "電話番号は50文字以内で入力してください"),
+  address: z.string().trim().max(1000, "住所は1000文字以内で入力してください").optional(),
 });
 
 // 顧客更新スキーマ（部分更新を許可しつつ、空オブジェクトは拒否）
@@ -26,6 +30,12 @@ export const customerUpdateSchema = customerCreateSchema
 // パスパラメータIDスキーマ（UUID検証によるIDOR・不正入力対策）
 export const customerIdParamSchema = z.object({
   id: z.string().uuid("無効な顧客ID形式です"),
+});
+
+// 一覧取得ページネーションクエリスキーマ
+export const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 
 // 汎用リクエストボディバリデーションミドルウェア

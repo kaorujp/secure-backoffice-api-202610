@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
@@ -18,6 +19,7 @@ import {
   customerCreateSchema,
   customerUpdateSchema,
   customerIdParamSchema,
+  paginationQuerySchema,
   validateBody,
   validateParams,
 } from "./validators/common.validator";
@@ -38,12 +40,30 @@ if (!envResult.success) {
   process.exit(1);
 }
 
+// ユーザー不在時のタイミング差を防ぐためのダミーArgon2idハッシュ
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHR2YWx1ZTEyMw$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.disable("x-powered-by");
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
+app.use(helmet());
+app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 app.use("/api", apiLimiter);
+
+// 不正JSONボディ（SyntaxError）を400として扱う
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof SyntaxError && "body" in err) {
+    return res.status(400).json({ error: "リクエストボディのJSON形式が不正です" });
+  }
+  return next(err);
+});
 
 // ヘルスチェック ＆ ブラウザのfavicon自動リクエスト対策
 app.get("/", (_req: Request, res: Response) => {
@@ -77,6 +97,8 @@ app.post(
         .limit(1);
 
       if (!user) {
+        // タイミング攻撃対策としてダミーハッシュの検証を実行し処理時間を揃える
+        await verifyPassword(DUMMY_PASSWORD_HASH, password).catch(() => false);
         return res.status(401).json({ error: "メールアドレスまたはパスワードが正しくありません" });
       }
 
@@ -95,7 +117,7 @@ app.post(
       const token = jwt.sign(
         { userId: user.id, role: user.role },
         process.env.JWT_SECRET as string,
-        { expiresIn: "1d" }
+        { algorithm: "HS256", expiresIn: "1d" }
       );
 
       res.cookie("auth_token", token, {
@@ -126,30 +148,71 @@ app.post(
   }
 );
 
-// GET /api/customers
+// POST /api/auth/logout
+app.post("/api/auth/logout", authenticateJWT, (req: Request, res: Response) => {
+  const ipAddress = req.ip || req.socket.remoteAddress || "unknown";
+
+  res.clearCookie("auth_token", {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
+  });
+
+  logAuditAsync({
+    userId: req.user!.userId,
+    action: "LOGOUT",
+    target: "auth",
+    ipAddress,
+  });
+
+  return res.status(200).json({ message: "ログアウトしました" });
+});
+
+// GET /api/customers（ページネーション対応）
 app.get(
   "/api/customers",
   authenticateJWT,
   authorizeRoles("admin", "staff", "auditor"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const queryResult = paginationQuerySchema.safeParse(req.query);
+      if (!queryResult.success) {
+        return res.status(400).json({
+          error: "クエリパラメータが不正です",
+          details: queryResult.error.issues.map((issue) => issue.message),
+        });
+      }
+
+      const { limit, offset } = queryResult.data;
       const ipAddress = req.ip || req.socket.remoteAddress || "unknown";
-      const allCustomers = await db.select().from(customers);
+      const customerList = await db
+        .select()
+        .from(customers)
+        .limit(limit)
+        .offset(offset);
 
       const responseData =
         req.user!.role === "admin"
-          ? allCustomers
-          : allCustomers.map(maskCustomerData);
+          ? customerList
+          : customerList.map(maskCustomerData);
 
       logAuditAsync({
         userId: req.user!.userId,
         action: "READ_CUSTOMERS",
         target: "customers",
-        details: { count: allCustomers.length, masked: req.user!.role !== "admin" },
+        details: {
+          count: customerList.length,
+          limit,
+          offset,
+          masked: req.user!.role !== "admin",
+        },
         ipAddress,
       });
 
-      return res.status(200).json({ customers: responseData });
+      return res.status(200).json({
+        customers: responseData,
+        pagination: { limit, offset },
+      });
     } catch (err) {
       next(err);
     }
@@ -179,6 +242,9 @@ app.post(
         })
         .returning();
 
+      const responseData =
+        req.user!.role === "admin" ? created : maskCustomerData(created);
+
       logAuditAsync({
         userId: req.user!.userId,
         action: "CREATE_CUSTOMER",
@@ -187,7 +253,7 @@ app.post(
         ipAddress,
       });
 
-      return res.status(201).json({ customer: created });
+      return res.status(201).json({ customer: responseData });
     } catch (err) {
       next(err);
     }

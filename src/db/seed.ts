@@ -6,22 +6,27 @@ import { hashPassword } from "../services/auth.service";
 dotenv.config();
 
 const seed = async () => {
+  if (process.env.NODE_ENV === "production") {
+    console.error("本番環境（NODE_ENV=production）ではシードスクリプトを実行できません。");
+    process.exit(1);
+  }
+
   console.log("初期ユーザーのシードを開始します...");
 
   const defaultUsers = [
     {
       email: "admin@example.com",
-      password: "AdminPassword123!",
+      password: process.env.SEED_ADMIN_PASSWORD || "AdminPassword123!",
       role: "admin" as const,
     },
     {
       email: "staff@example.com",
-      password: "StaffPassword123!",
+      password: process.env.SEED_STAFF_PASSWORD || "StaffPassword123!",
       role: "staff" as const,
     },
     {
       email: "auditor@example.com",
-      password: "AuditorPassword123!",
+      password: process.env.SEED_AUDITOR_PASSWORD || "AuditorPassword123!",
       role: "auditor" as const,
     },
   ];
