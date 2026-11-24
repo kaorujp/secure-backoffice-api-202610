@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, text } from "drizzle-orm/pg-core";
+import { pgTable, varchar, timestamp, text, index } from "drizzle-orm/pg-core";
 
 // users: ロール定義とUUID主キー
 export const users = pgTable("users", {
@@ -21,16 +21,24 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// audit_logs: 改ざん防止（updated_atを持たせないAppend-Only設計）
-export const auditLogs = pgTable("audit_logs", {
-  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id),
-  action: varchar("action", { length: 100 }).notNull(),
-  target: varchar("target", { length: 100 }).notNull(),
-  details: text("details"),
-  ipAddress: varchar("ip_address", { length: 45 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// audit_logs: 改ざん防止（updated_atを持たせないAppend-Only設計）＋検索用インデックス
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id),
+    action: varchar("action", { length: 100 }).notNull(),
+    target: varchar("target", { length: 100 }).notNull(),
+    details: text("details"),
+    ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("audit_logs_user_id_idx").on(table.userId),
+    index("audit_logs_created_at_idx").on(table.createdAt),
+    index("audit_logs_action_idx").on(table.action),
+  ]
+);
 
 // 型定義のエクスポート
 export type User = typeof users.$inferSelect;
